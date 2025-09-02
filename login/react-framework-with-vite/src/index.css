@@ -49,8 +49,6 @@ button {
   font-family: inherit;
   background-color: #1a1a1a;
   cursor: pointer;
-  transition: all 0.25s;
-  cursor: pointer;
   transition: border-color 0.25s;
 }
 button:hover {
@@ -103,7 +101,7 @@ button:focus-visible {
 .separator {
   text-align: center;
   position: relative;
-  margin: 1.5rem 0;
+  margin: 1.5rem ;
   color: #666;
 }
 
@@ -345,7 +343,7 @@ button:focus-visible {
 
 .chyrp-title {
   font-family: 'Poppins', sans-serif;
-  font-size: 3em;
+  font-size: 2.75em;
   font-weight: 700;
   color: #646cff;
   text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
