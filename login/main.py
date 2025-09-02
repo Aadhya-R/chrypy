@@ -7,8 +7,28 @@ from typing import Optional
 
 from pydantic import BaseModel
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite default port
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Root endpoint
+@app.get("/")
+def read_root():
+    return {"message": "🚀 Your FastAPI app is running!"}
+
+# Example endpoint
+@app.get("/hello/{name}")
+def say_hello(name: str):
+    return {"message": f"Hello, {name}!", "app": "Chrypy"}
 
 DATABASE_URL = "sqlite:///./test.db"
 
