@@ -8,9 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, BaseSettings
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql.sqltypes import TIMESTAMP
+from datetime import datetime
+from sqlalchemy.sql.expression import text
 
 # Database configuration
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
@@ -88,6 +91,14 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
+
+class Post(Base):
+    __tablename__ = "posts"
+    id = Column(Integer, primary_key = True, index = True)
+    title = Column(String, index = True)
+    content = Column(String, index = True)
+    createtime = Column(TIMESTAMP(timezone=True), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
 Base.metadata.create_all(bind=engine)
 
@@ -416,6 +427,8 @@ class UserUpdate(BaseModel):
     username:Optional[str] = None
     email:Optional[str] = None
 
+# CONTROVERSIAL CODE ALERT: depending on requirement you can change user.name != "" to is not None
+
 @app.put("/users/{user_id}", response_model=UserResponse)
 def update_user(user_id: int, user: UserUpdate, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.id == user_id).first()
@@ -436,3 +449,81 @@ def delete_user(user_id:int, db: Session = Depends(get_db)):
     db.delete(db_user)
     db.commit()
     return db_user
+
+
+
+
+#----------POST------------------------------------------------------------------------------------------------
+
+
+
+
+class PostCreate(BaseModel):
+    title: str
+    content: str
+
+class PostResponse(BaseModel):
+    id: int
+    title: str
+    content: str
+    createtime: datetime
+    user_id: int
+
+@app.post("/{user_name}/posts/", response_model=PostResponse)
+def create_post(user_name: str, post: PostCreate, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    db_post = Post(title = post.title, content = post.content, createtime = datetime.now(), user_id = user.id)
+    db.add(db_post)
+    db.commit()
+    db.refresh(db_post)
+    return db_post
+
+@app.get("/{user_name}/posts/", response_model = list[PostResponse])
+def read_posts(user_name: str, skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    posts = db.query(Post).filter(Post.user_id == user.id).offset(skip).limit(limit).all()
+    return posts
+
+@app.get("/{user_name}/posts/{post_title}", response_model = PostResponse)
+def read_post(user_name: str, post_title: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    post = db.query(Post).filter(Post.title == post_title and Post.user_id == user.id).first()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+class PostUpdate(BaseModel):
+    title:Optional[str] = None
+    content:Optional[str] = None
+
+@app.put("/{user_name}/posts/{post_id}", response_model=PostResponse)
+def update_post(user_name: str, post_id: int, post: PostUpdate, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    db_post = db.query(Post).filter(Post.id == post_id and Post.user_id == user.id).first()
+    if db_post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    db_post.title = post.title if post.title != "" else db_post.title
+    db_post.content = post.content if post.content != "" else db_post.content
+    db.commit()
+    db.refresh(db_post)
+    return db_post
+
+@app.delete("/{user_name}/posts/{post_id}", response_model=PostResponse)
+def delete_post(user_name: str, post_id:int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    db_post = db.query(Post).filter(Post.id == post_id and Post.user_id == user.id).first()
+    if db_post is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    db.delete(db_post)
+    db.commit()
+    return db_post
