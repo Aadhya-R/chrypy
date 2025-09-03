@@ -1,96 +1,161 @@
-🚀 Full-Stack Login Application (FastAPI + React + SQLite)
+# 🚀 Chrypy - Modern Authentication System
 
-This project is a full-stack login application built with:
+Chrypy is a secure, full-stack authentication system built with FastAPI and React. It provides JWT-based authentication with refresh tokens, protected routes, and user management capabilities.
 
-Backend → FastAPI
- + SQLite (with interactive API docs)
+## ✨ Features
 
-Frontend → React
- with Vite
+- 🔐 JWT-based authentication
+- 🔄 Refresh token rotation
+- 🔒 Protected API endpoints
+- 👤 User management (CRUD operations)
+- 🚀 Modern React frontend with Vite
+- 🔄 CORS support
+- 🔄 Session management with token blacklisting
+- 🔑 Secure password hashing with bcrypt
 
-📋 Prerequisites
+## 🛠️ Prerequisites
 
-Before running the project, make sure you have the following installed:
+- Python 3.8+
+- Node.js 16+
+- npm or yarn
+- SQLite (included with Python)
 
-Python 3.7+
+## 🚀 Getting Started
 
-Node.js + npm (check with node -v and npm -v)
+### Backend Setup
 
-(Optional) Virtual environment for Python (venv recommended)
+1. **Navigate to the project directory**
+   ```bash
+   cd login
+   ```
 
-⚙️ Backend (FastAPI + SQLite)
-1. Navigate to backend folder
+2. **Create and activate a virtual environment**
+   ```bash
+   # Windows
+   python -m venv venv
+   .\venv\Scripts\activate
+   
+   # Linux/Mac
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
 
-If your backend code is inside login/, open a terminal there.
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-cd login
+4. **Set up environment variables**
+   Create a `.env` file in the root directory with the following variables:
+   ```
+   SECRET_KEY=your-secret-key-here
+   ALGORITHM=HS256
+   ACCESS_TOKEN_EXPIRE_MINUTES=15
+   REFRESH_TOKEN_EXPIRE_DAYS=7
+   ```
 
-2. Create & activate a virtual environment (recommended)
+5. **Run database migrations**
+   ```bash
+   python migrate.py
+   ```
 
-On Windows (PowerShell):
+6. **Start the FastAPI server**
+   ```bash
+   uvicorn main:app --reload
+   ```
+   
+   The API will be available at `http://localhost:8000`
 
-python -m venv venv
-.\venv\Scripts\activate
+### Frontend Setup
 
+1. **Navigate to the frontend directory**
+   ```bash
+   cd react-framework-with-vite
+   ```
 
-On Linux/Mac:
+2. **Install dependencies**
+   ```bash
+   npm install
+   # or
+   yarn
+   ```
 
-python3 -m venv venv
-source venv/bin/activate
+3. **Start the development server**
+   ```bash
+   npm run dev
+   # or
+   yarn dev
+   ```
+   
+   The frontend will be available at `http://localhost:5173`
 
-3. Install dependencies
-pip install -r requirements.txt
+## 📚 API Documentation
 
-4. Run FastAPI server
-uvicorn main:app --reload
+Once the server is running, you can access the interactive API documentation at:
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
+## 🔒 Authentication Flow
 
-✅ Backend will be running at:
+1. **Login**
+   - Submit username/password to `/token`
+   - Receive access token and refresh token
+   - Access token is short-lived (15 minutes by default)
+   - Refresh token is long-lived (7 days by default)
 
-API → http://127.0.0.1:8000
+2. **Accessing Protected Routes**
+   - Include the access token in the `Authorization` header:
+     ```
+     Authorization: Bearer <access_token>
+     ```
 
-Docs → http://127.0.0.1:8000/docs
+3. **Refreshing Tokens**
+   - When the access token expires, use the refresh token at `/token/refresh`
+   - Get a new access token without requiring the user to log in again
 
-🎨 Frontend (React + Vite)
-1. Navigate to frontend folder
-cd login/react-framework-with-vite
+## 🏗️ Project Structure
 
-2. Install dependencies
-npm install
+```
+chrypy/
+├── login/                      # Main application directory
+│   ├── __pycache__/            # Python bytecode cache
+│   ├── react-framework-with-vite/  # Frontend React application
+│   │   ├── public/             # Static files
+│   │   └── src/                # React source files
+│   │       ├── components/      # Reusable React components
+│   │       ├── App.jsx         # Main App component
+│   │       └── main.jsx        # Entry point
+│   ├── main.py                # FastAPI application
+│   └── migrate.py             # Database migration script
+├── .env                       # Environment variables
+├── requirements.txt           # Python dependencies
+└── README.md                  # This file
+```
 
-3. Start development server
-npm run dev
+## 🛠️ Built With
 
+- **Backend**
+  - [FastAPI](https://fastapi.tiangolo.com/) - Modern, fast web framework
+  - [SQLAlchemy](https://www.sqlalchemy.org/) - SQL toolkit and ORM
+  - [Python-JOSE](https://python-jose.readthedocs.io/) - JWT implementation
+  - [Passlib](https://passlib.readthedocs.io/) - Password hashing
 
-✅ Frontend will be running at:
+- **Frontend**
+  - [React](https://reactjs.org/) - JavaScript library for building UIs
+  - [Vite](https://vitejs.dev/) - Next Generation Frontend Tooling
+  - [React Router](https://reactrouter.com/) - Declarative routing
 
-UI → http://localhost:5173
+## 📝 License
 
-🔗 Running Both Together
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Open two terminals (or split terminal in VS Code):
+## 🙏 Acknowledgments
 
-Terminal 1 → Run FastAPI backend (uvicorn main:app --reload)
+- FastAPI community for the amazing framework
+- Vite for the lightning-fast development experience
+- All open-source contributors whose work made this project possible
 
-Terminal 2 → Run React frontend (npm run dev)
-
-The frontend will communicate with the backend via REST API calls.
-
-📌 Usage
-
-Start the backend first.
-
-Start the frontend.
-
-Open http://localhost:5173
- in your browser.
-
-Use the login page (frontend) → It will send requests to FastAPI backend.
-
-Explore API endpoints at http://127.0.0.1:8000/docs
-.
-
-🛠 Development Notes
+## 🏗️ Development Notes
 
 --reload flag in backend ensures auto-restart on code changes.
 
