@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import secrets
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Response
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Form, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, relationship
 from sqlalchemy.sql.sqltypes import TIMESTAMP
 from datetime import datetime
 from sqlalchemy.sql.expression import text
@@ -96,6 +96,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
+    posts = relationship("Post", back_populates="user", cascade="all, delete-orphan")
 
 class Post(Base):
     __tablename__ = "posts"
@@ -104,6 +105,7 @@ class Post(Base):
     content = Column(String, index = True)
     createtime = Column(TIMESTAMP(timezone=True), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user = relationship("User", back_populates="posts")
 
 Base.metadata.create_all(bind=engine)
 
@@ -451,6 +453,10 @@ def delete_user(user_id:int, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.id == user_id).first()
     if db_user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    with os.scandir("./uploads") as entries:
+        for entry in entries:
+            if entry.name.split('-')[0] == str(user_id):
+                os.remove(entry)
     db.delete(db_user)
     db.commit()
     return db_user
@@ -473,6 +479,7 @@ class PostResponse(BaseModel):
     content: str
     createtime: datetime
     user_id: int
+    image: str
 
 @app.post("/{user_name}/posts/", response_model=PostResponse)
 def create_post(user_name: str, post: PostCreate, db: Session = Depends(get_db)):
@@ -507,16 +514,62 @@ class PostUpdate(BaseModel):
     title:Optional[str] = None
     content:Optional[str] = None
 
-@app.put("/{user_name}/posts/{post_id}", response_model=PostResponse)
-def update_post(user_name: str, post_id: int, post: PostUpdate, db: Session = Depends(get_db)):
+@app.post("/{user_name}/posts/", response_model=PostResponse)
+def create_post(user_name: str, ptitle: str = Form(...), pcontent: str = Form(...), img: UploadFile = File(...), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == user_name).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    db_post = db.query(Post).filter(Post.id == post_id and Post.user_id == user.id).first()
+    imgname = str(user.id) + '-' + img.filename
+    post = db.query(Post).filter(Post.user_id == user.id).filter(Post.image == imgname).first()
+    if post is not None:
+        raise HTTPException(status_code=400, detail="Cannot add two images with the same filename.")
+    if img.content_type.split('/')[0] != "image":
+        raise HTTPException(status_code=400, detail="Incorrect file type")
+    with open(f'./uploads/{imgname}', "wb") as f:
+        f.write(img.file.read())
+    db_post = Post(title = ptitle, content = pcontent, createtime = datetime.now(), user_id = user.id, image = imgname)
+    db.add(db_post)
+    db.commit()
+    db.refresh(db_post)
+    return db_post
+
+@app.get("/{user_name}/posts/", response_model = list[PostResponse])
+def read_posts(user_name: str, skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    posts = db.query(Post).filter(Post.user_id == user.id).offset(skip).limit(limit).all()
+    return posts
+
+@app.get("/{user_name}/posts/{post_title}", response_model = PostResponse)
+def read_post(user_name: str, post_title: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    post = db.query(Post).filter(Post.title == post_title).filter(Post.user_id == user.id).first()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
+
+@app.put("/{user_name}/posts/{post_id}", response_model=PostResponse)
+def update_post(user_name: str, post_id: int, ptitle: Optional[str] = Form(None), pcontent: Optional[str] = Form(None), img: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_name).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    db_post = db.query(Post).filter(Post.id == post_id).filter(Post.user_id == user.id).first()
     if db_post is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    db_post.title = post.title if post.title != "" else db_post.title
-    db_post.content = post.content if post.content != "" else db_post.content
+    db_post.title = ptitle if ptitle is not None else db_post.title
+    db_post.content = pcontent if pcontent is not None else db_post.content
+    if (img):
+        if img.content_type.split('/')[0] != "image":
+            raise HTTPException(status_code=400, detail="Incorrect file type")
+        imgname = str(user.id) + '-' + img.filename
+        file_to_delete = f"./uploads/{db_post.image}"
+        os.remove(file_to_delete)
+        with open(f'./uploads/{imgname}', "wb") as f:
+            f.write(img.file.read())
+        db_post.image = imgname
     db.commit()
     db.refresh(db_post)
     return db_post
@@ -526,9 +579,11 @@ def delete_post(user_name: str, post_id:int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == user_name).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    db_post = db.query(Post).filter(Post.id == post_id and Post.user_id == user.id).first()
+    db_post = db.query(Post).filter(Post.id == post_id).filter(Post.user_id == user.id).first()
     if db_post is None:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="Post not found")
+    file_to_delete = f"./uploads/{db_post.image}"
+    os.remove(file_to_delete)
     db.delete(db_post)
     db.commit()
     return db_post
