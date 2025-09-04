@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Welcome from './Welcome';
+import CreatePost from './components/CreatePost';
 
 const API_URL = 'http://localhost:8000';
 
@@ -64,6 +65,10 @@ const AuthWrapper = () => {
     <Routes>
       <Route path="/welcome" element={isLoggedIn ? <Welcome user={JSON.parse(localStorage.getItem('user'))} /> : <Navigate to="/" />} />
       <Route path="/" element={!isLoggedIn ? <AuthForm /> : <Navigate to="/welcome" />} />
+      <Route
+                path="/create-post" // 👈 Add the new route here
+                element={isLoggedIn ? <CreatePost /> : <Navigate to="/" />}
+            />
     </Routes>
   );
 };
@@ -139,7 +144,7 @@ const AuthForm = () => {
         const response = await axios.post(
           `${API_URL}/token`,
           new URLSearchParams({
-            username: formData.username || formData.email, // Allow login with either username or email
+            username: formData.username, // Allow login with either username or email
             password: formData.password,
             grant_type: 'password',
             client_id: 'test',

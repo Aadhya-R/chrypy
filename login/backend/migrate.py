@@ -1,4 +1,4 @@
-from main import Base, engine
+from chrypy.login.backend.main import Base, engine
 
 def run_migrations():
     print("Running database migrations...")
