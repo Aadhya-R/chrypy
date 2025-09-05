@@ -1,82 +1,50 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import './Welcome.css';
 
 const Welcome = () => {
-  const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState(JSON.parse(localStorage.getItem('user')));
+  const [countdown, setCountdown] = useState(5);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      try {
-        const token = localStorage.getItem('access_token');
-        if (!token) {
-          navigate('/login');
-          return;
-        }
+    if (!user) {
+      navigate('/');
+      return;
+    }
 
-        const response = await axios.get('http://localhost:8000/users/me', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        setUser(response.data);
-      } catch (error) {
-        console.error('Error fetching user data:', error);
-        // If there's an error (e.g., token expired), redirect to login
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user');
-        navigate('/login');
-      } finally {
-        setIsLoading(false);
-      }
+    const timer = setTimeout(() => {
+      navigate('/homepage'); // FIX: Path is lowercase
+    }, 5000);
+
+    const interval = setInterval(() => setCountdown(p => p - 1), 1000);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
     };
+  }, [user, navigate]);
 
-    fetchUserData();
-  }, [navigate]);
-
-  const handleLogout = () => {
-    // Clear auth data
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
-    
-    // Call logout API
-    axios.post('http://localhost:8000/logout');
-    
-    // Redirect to login
-    navigate('/login');
-  };
-
-  if (isLoading) {
-    return (
-      <div className="welcome-container">
-        <div className="loading">Loading...</div>
-      </div>
-    );
-  }
+  if (!user) return <div className="loading">Loading...</div>;
 
   return (
-    <div className="welcome-container">
+    
       <div className="welcome-card">
-        <h1>Welcome, {user?.name || 'User'}!</h1>
-        <p>You have successfully logged in to Chrypy Lite.</p>
+        <h1>Welcome, {user.name}!</h1>
+        <p>Redirecting in {countdown}...</p>
         <div className="user-info">
-          <p><strong>Username:</strong> {user?.username}</p>
-          <p><strong>Email:</strong> {user?.email}</p>
+          <p><strong>Username:</strong> {user.username}</p>
+          <p><strong>Email:</strong> {user.email}</p>
         </div>
         <button 
-          onClick={handleLogout}
-          className="logout-button"
+          onClick={() => navigate('/homepage')} 
+          className="action-button"
         >
-          Logout
+          Go to Homepage Now
         </button>
+
       </div>
-    </div>
+    
   );
 };
 

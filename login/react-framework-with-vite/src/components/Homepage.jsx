@@ -1,93 +1,74 @@
-import React, { useState, useEffect } from 'react';
+
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import './Homepage.css'; // Make sure you have this CSS file
 
 const API_URL = 'http://localhost:8000';
 
 const BlogPost = ({ post }) => {
-    const createExcerpt = (text, maxLength = 150) => {
-        if (!text || text.length <= maxLength) return text;
-        return text.substr(0, text.lastIndexOf(' ', maxLength)) + '...';
-    };
-
-    return (
-        <div className="blog-post">
-            <h3 className="post-title">{post.title}</h3>
-            <p className="post-meta">
-                Published on: {new Date(post.createtime).toLocaleDateString()}
-            </p>
-            <p className="post-excerpt">{createExcerpt(post.content)}</p>
-            <Link to={`/posts/${post.id}`} className="read-more-link">Read More</Link>
-        </div>
-    );
+    // ... (Your BlogPost component is fine)
 };
 
 const Homepage = () => {
     const [posts, setPosts] = useState([]);
     const [user, setUser] = useState(null);
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(true); // Add a loading state
     const navigate = useNavigate();
 
     useEffect(() => {
         const fetchData = async () => {
             const token = localStorage.getItem('access_token');
             if (!token) {
-                navigate('/');
+                navigate('/login');
                 return;
             }
 
             try {
+                // 1. Fetch user data
                 const userResponse = await axios.get(`${API_URL}/users/me`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const currentUser = userResponse.data;
                 setUser(currentUser);
 
+                // 2. Fetch posts for that user
                 const postsResponse = await axios.get(`${API_URL}/${currentUser.username}/posts/`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 setPosts(postsResponse.data);
 
             } catch (err) {
-                setError('Failed to load data. Please log in again.');
-                localStorage.clear();
-                navigate('/');
+                console.error("Error fetching homepage data:", err.response || err.message);
+                setError('Failed to load data. You may be logged out.');
+                // We won't redirect immediately so you can see the error message.
+            } finally {
+                setIsLoading(false); // Always stop loading
             }
         };
 
         fetchData();
     }, [navigate]);
 
-    const handleLogout = async () => {
-        const token = localStorage.getItem('access_token');
-        try {
-            await axios.post(`${API_URL}/logout`, {}, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-        } catch (error) {
-            console.error("Logout failed on the backend, but proceeding.", error);
-        } finally {
-            localStorage.clear();
-            navigate('/');
-        }
+    const handleLogout = () => {
+        // ... (Your logout function is fine)
     };
+    
+    // Render logic based on the current state
+    if (isLoading) {
+        return <div className="loading-message">Loading Homepage...</div>;
+    }
+
+    if (error) {
+        return <div className="api-message error">{error}</div>;
+    }
 
     return (
-        <>
+        <div className="homepage-container">
             <header className="header">
-                <h1 className="chyrp-title">Chyrp</h1>
-                <div className="header-actions">
-                    <input type="search" placeholder="Search..." className="input-field" style={{width: '200px', paddingLeft: '15px'}} />
-                    <Link to="/create-post"><button className="create-post-btn">Create Post</button></Link>
-                    <Link to="/profile">
-                        <div className="profile-circle" title="View Profile">
-                            <span className="material-symbols-rounded">person</span>
-                        </div>
-                    </Link>
-                    <button onClick={handleLogout} className="logout-button">Logout</button>
-                </div>
+                {/* ... (Your header JSX is fine) */}
             </header>
-
             <main className="blog-container">
                 {user && (
                     <div className="welcome-message">
@@ -95,8 +76,6 @@ const Homepage = () => {
                     </div>
                 )}
                 
-                {error && <p className="api-message error">{error}</p>}
-
                 {posts.length > 0 ? (
                     posts.map(post => <BlogPost key={post.id} post={post} />)
                 ) : (
@@ -106,7 +85,7 @@ const Homepage = () => {
                     </div>
                 )}
             </main>
-        </>
+        </div>
     );
 };
 

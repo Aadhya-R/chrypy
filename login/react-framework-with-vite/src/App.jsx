@@ -4,6 +4,7 @@ import axios from 'axios';
 import Welcome from './components/Welcome';
 import CreatePost from './components/CreatePost';
 import Signup from './components/Signup';
+import Homepage from './components/Homepage'; 
 
 const API_URL = 'http://localhost:8000';
 
