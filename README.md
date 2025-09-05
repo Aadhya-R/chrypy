@@ -2,6 +2,36 @@
 
 Chrypy is a secure, full-stack authentication system built with FastAPI and React. It provides JWT-based authentication with refresh tokens, protected routes, and user management capabilities.
 
+## ⚡ Quick Start
+
+### How to Run Backend? (FIRST)
+Run the following in a cmd line:
+```bash
+cd c:\Users\kavin\OneDrive\Desktop\chrypy\login
+python -m venv venv
+venv\Scripts\activate
+pip install "fastapi<0.100" "pydantic<2" "uvicorn[standard]" python-dotenv
+uvicorn backend.main:app --reload
+```
+**YOU SHOULD SEE:** Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+
+### How to Run Frontend? (Second)
+Run the following in another (new) cmd line:
+```bash
+cd c:\Users\kavin\OneDrive\Desktop\chrypy\login\react-framework-with-vite
+npm install
+npm run dev
+```
+**YOU SHOULD SEE:**
+```
+VITE v4.x ready in XXX ms
+➜ Local: http://localhost:5173/
+➜ Network: use --host to expose
+➜ press h to show help
+```
+
+---
+
 ## ✨ Features
 
 - 🔐 JWT-based authentication
