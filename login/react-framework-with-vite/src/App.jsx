@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import Welcome from './Welcome';
+import Welcome from './components/Welcome';
 import CreatePost from './components/CreatePost';
+import Signup from './components/Signup';
 
 const API_URL = 'http://localhost:8000';
 
@@ -63,27 +64,17 @@ const AuthWrapper = () => {
   
   return (
     <Routes>
-      <Route path="/welcome" element={isLoggedIn ? <Welcome user={JSON.parse(localStorage.getItem('user'))} /> : <Navigate to="/" />} />
-      <Route path="/" element={!isLoggedIn ? <AuthForm /> : <Navigate to="/welcome" />} />
-      <Route
-                path="/create-post" // 👈 Add the new route here
-                element={isLoggedIn ? <CreatePost /> : <Navigate to="/" />}
-            />
+      <Route path="/welcome" element={isLoggedIn ? <Welcome user={JSON.parse(localStorage.getItem('user'))} /> : <Navigate to="/login" />} />
+      <Route path="/login" element={!isLoggedIn ? <AuthForm isLogin={true} /> : <Navigate to="/welcome" />} />
+      <Route path="/signup" element={!isLoggedIn ? <AuthForm isLogin={false} /> : <Navigate to="/welcome" />} />
+      <Route path="/create-post" element={isLoggedIn ? <CreatePost /> : <Navigate to="/login" />} />
+      <Route path="/" element={<Navigate to={isLoggedIn ? "/welcome" : "/login"} />} />
     </Routes>
   );
 };
 
-const AuthForm = () => {
+const AuthForm = ({ isLogin }) => {
   const navigate = useNavigate();
-  const [isLogin, setIsLogin] = useState(true);
-  
-  useEffect(() => {
-    // Check if user is already logged in
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      navigate('/welcome');
-    }
-  }, [navigate]);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -144,7 +135,7 @@ const AuthForm = () => {
         const response = await axios.post(
           `${API_URL}/token`,
           new URLSearchParams({
-            username: formData.username, // Allow login with either username or email
+            username: formData.email, // Using email for login
             password: formData.password,
             grant_type: 'password',
             client_id: 'test',
@@ -167,7 +158,7 @@ const AuthForm = () => {
         });
         
         localStorage.setItem('user', JSON.stringify(userResponse.data));
-        window.location.href = '/welcome';
+        navigate('/welcome');
       } else {
         // Handle signup
         await axios.post(
@@ -185,7 +176,6 @@ const AuthForm = () => {
           type: 'success',
           text: 'Account created successfully! Please log in.'
         });
-        setIsLogin(true);
         setFormData({
           name: '',
           email: '',
@@ -283,9 +273,8 @@ const AuthForm = () => {
             type="button" 
             className="signup-link" 
             onClick={() => {
-              setIsLogin(!isLogin);
-              setApiMessage({ type: '', text: '' });
-              setErrors({});
+              const newIsLogin = !isLogin;
+              navigate(newIsLogin ? '/login' : '/signup');
             }}
           >
             {isLogin ? 'Sign up' : 'Log in'}
@@ -296,10 +285,56 @@ const AuthForm = () => {
   );
 };
 
+// Protected route component
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('access_token');
+  const location = useLocation();
+  
+  if (!token) {
+    // Redirect to login if not authenticated
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  
+  return children;
+};
+
+// Public route component
+const PublicRoute = ({ children }) => {
+  const token = localStorage.getItem('access_token');
+  
+  if (token) {
+    // Redirect to welcome if already authenticated
+    return <Navigate to="/welcome" replace />;
+  }
+  
+  return children;
+};
+
 const App = () => {
   return (
     <Router>
-      <AuthWrapper />
+      <Routes>
+        <Route path="/login" element={
+          <PublicRoute>
+            <AuthForm isLogin={true} />
+          </PublicRoute>
+        } />
+        <Route path="/signup" element={
+          <PublicRoute>
+            <AuthForm isLogin={false} />
+          </PublicRoute>
+        } />
+        <Route path="/welcome" element={
+          <ProtectedRoute>
+            <Welcome />
+          </ProtectedRoute>
+        } />
+        <Route path="/" element={
+          <ProtectedRoute>
+            <Navigate to="/welcome" replace />
+          </ProtectedRoute>
+        } />
+      </Routes>
     </Router>
   );
 };

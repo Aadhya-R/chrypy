@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings
+from pydantic import BaseSettings
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session, sessionmaker, relationship
@@ -28,25 +28,18 @@ Base = declarative_base()
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Hardcoded settings for simpler setup
+class Settings:
+    SECRET_KEY = "your-super-secret-key-keep-it-secure"
+    ALGORITHM = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES = 15
+    REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+settings = Settings()
 
 # Create database tables
 def create_tables():
     Base.metadata.create_all(bind=engine)
-
-# Settings class for environment variables
-class Settings(BaseSettings):
-    SECRET_KEY: str = "your_default_secret_key"
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-
-    model_config = {
-        "env_file": ".env",
-        "env_prefix": "",
-    }
-settings = Settings()
 
 # Create database tables
 create_tables()
@@ -161,16 +154,33 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def get_user(db, username: str):
-    return db.query(User).filter(User.username == username).first()
+def get_user(db, username: str = None, email: str = None):
+    """Get user by username or email"""
+    if username:
+        return db.query(User).filter(User.username == username).first()
+    elif email:
+        return db.query(User).filter(User.email == email).first()
+    return None
 
 
-def authenticate_user(db, username: str, password: str):
-    user = get_user(db, username)
+def authenticate_user(db, username: str = None, email: str = None, password: str = None):
+    """Authenticate user by username/email and password"""
+    if not (username or email) or not password:
+        return False
+        
+    # Try to find user by username or email
+    if username:
+        user = get_user(db, username=username)
+    else:
+        user = get_user(db, email=email)
+        
     if not user:
         return False
+        
+    # Verify password
     if not verify_password(password, user.hashed_password):
         return False
+        
     return user
 
 
@@ -282,11 +292,18 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    user = authenticate_user(db, form_data.username, form_data.password)
+    # Check if the username is actually an email
+    is_email = "@" in form_data.username
+    
+    if is_email:
+        user = authenticate_user(db, email=form_data.username, password=form_data.password)
+    else:
+        user = authenticate_user(db, username=form_data.username, password=form_data.password)
+    
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Incorrect username/email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -393,24 +410,76 @@ async def logout(
         )
 
 
-# User endpoints
-@app.post("/users/", response_model=UserInDB)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.username == user.username).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+# Test endpoint to create a test user
+@app.post("/create-test-user")
+async def create_test_user(db: Session = Depends(get_db)):
+    test_user = {
+        "username": "testuser",
+        "email": "test@example.com",
+        "name": "Test User",
+        "password": "testpassword123"
+    }
     
-    hashed_password = get_password_hash(user.password)
+    # Check if user already exists
+    db_user = get_user(db, username=test_user["username"])
+    if db_user:
+        return {"message": "Test user already exists", "username": test_user["username"]}
+    
+    # Create new user
+    hashed_password = get_password_hash(test_user["password"])
     db_user = User(
-        name=user.name,
-        username=user.username,
-        email=user.email,
+        username=test_user["username"],
+        email=test_user["email"],
+        name=test_user["name"],
         hashed_password=hashed_password
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    return db_user
+    
+    return {
+        "message": "Test user created successfully",
+        "username": test_user["username"],
+        "password": test_user["password"]
+    }
+
+# User endpoints
+@app.post("/users/", response_model=UserResponse)
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    # Check if username already exists
+    db_user = db.query(User).filter(User.username == user.username).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    # Check if email already exists
+    db_email = db.query(User).filter(User.email == user.email).first()
+    if db_email:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    try:
+        hashed_password = get_password_hash(user.password)
+        db_user = User(
+            name=user.name,
+            username=user.username,
+            email=user.email,
+            hashed_password=hashed_password,
+            is_active=True
+        )
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        
+        # Return user data without password hash
+        return {
+            "id": db_user.id,
+            "username": db_user.username,
+            "email": db_user.email,
+            "name": db_user.name,
+            "is_active": db_user.is_active
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/users/", response_model=list[UserResponse])
