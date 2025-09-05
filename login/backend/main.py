@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import shutil
 from fastapi.staticfiles import StaticFiles
 from fastapi import UploadFile, File
+from sqlalchemy.orm import Session, sessionmaker, relationship
 
 app = FastAPI()
 
@@ -113,14 +114,16 @@ class Post(Base):
     cover_image_url = Column(String, nullable=False)
     createtime = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    media = relationship("Media", back_populates="post") # ADD THIS LINE
 class Media(Base):
     __tablename__ = "media"
     id = Column(Integer, primary_key=True, index=True)
     post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     file_url = Column(String, nullable=False)
     media_type = Column(String, nullable=False)
-
+    media_type = Column(String, nullable=False)
+    post = relationship("Post", back_populates="media") # ADD THIS LINE
 Base.metadata.create_all(bind=engine)
 
 
@@ -165,6 +168,26 @@ class UserResponse(BaseModel):
     email: str
     username: str
 
+class PostCreate(BaseModel):
+    title: str
+    content: str
+    media_urls: List[dict]
+class MediaResponse(BaseModel):
+     id: int
+     file_url: str
+     media_type: str
+     class Config:
+        orm_mode = True
+class PostResponse(BaseModel):
+    id: int
+    title: str
+    content: str
+    cover_image_url: str
+    createtime: datetime
+    user_id: int
+    media: List[MediaResponse] = []
+    class Config:
+        orm_mode = True
 
 # Utility functions
 def verify_password(plain_password, hashed_password):
@@ -477,6 +500,7 @@ def delete_user(user_id:int, db: Session = Depends(get_db)):
 #----------POST------------------------------------------------------------------------------------------------
 
 
+
 # Add these two new functions
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(...)):
@@ -491,38 +515,33 @@ def search_posts(q: str, db: Session = Depends(get_db)):
     return posts
 
 
-class PostCreate(BaseModel):
-    title: str
-    content: str
-    media_urls: List[dict]
-class MediaResponse(BaseModel):
-     id: int
-     file_url: str
-     media_type: str
-     class Config:
-        orm_mode = True
-class PostResponse(BaseModel):
-    id: int
-    title: str
-    content: str
-    cover_image_url: str
-    createtime: datetime
-    user_id: int
-    media: List[MediaResponse] = []
-    class Config:
-        orm_mode = True
-    
 
 @app.post("/{user_name}/posts/", response_model=PostResponse)
 def create_post(user_name: str, post: PostCreate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == user_name).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    db_post = Post(title = post.title, content = post.content, createtime = datetime.now(), user_id = user.id)
+
+    # Find the first image URL to use as the cover image
+    first_image_url = next((media.get("file_url") for media in post.media_urls if media.get("media_type") == "image"), None)
+    if not first_image_url:
+        raise HTTPException(status_code=400, detail="At least one image is required.")
+
+    # Create the Post object
+    db_post = Post(title=post.title, content=post.content, user_id=user.id, cover_image_url=first_image_url)
     db.add(db_post)
     db.commit()
     db.refresh(db_post)
-    return db_post
+
+    # Create and link the Media objects
+    for media_item in post.media_urls:
+        db_media = Media(post_id=db_post.id, file_url=media_item.get("file_url"), media_type=media_item.get("media_type"))
+        db.add(db_media)
+    db.commit()
+
+    # Query the post again to ensure the media relationship is loaded
+    final_post = db.query(Post).filter(Post.id == db_post.id).first()
+    return final_post
 
 @app.get("/{user_name}/posts/", response_model = list[PostResponse])
 def read_posts(user_name: str, skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
