@@ -2,20 +2,27 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import secrets
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Response, Form, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker, relationship
+from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql.sqltypes import TIMESTAMP
 from datetime import datetime
 from sqlalchemy.sql.expression import text
+from fastapi.middleware.cors import CORSMiddleware
+import shutil
+from fastapi.staticfiles import StaticFiles
+from fastapi import UploadFile, File
 
+app = FastAPI()
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 # Database configuration
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
 
@@ -28,23 +35,30 @@ Base = declarative_base()
 import os
 from dotenv import load_dotenv
 
-# Hardcoded settings for simpler setup
-class Settings:
-    SECRET_KEY = "your-super-secret-key-keep-it-secure"
-    ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = 15
-    REFRESH_TOKEN_EXPIRE_DAYS = 7
-
-settings = Settings()
+# Load environment variables
+load_dotenv()
 
 # Create database tables
 def create_tables():
     Base.metadata.create_all(bind=engine)
 
+# Settings class for environment variables
+class Settings(BaseSettings):
+    SECRET_KEY: str = "your_default_secret_key"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    model_config = {
+        "env_file": ".env",
+        "env_prefix": "",
+    }
+settings = Settings()
+
 # Create database tables
 create_tables()
 
-app = FastAPI()
+
 
 # Configure CORS
 app.add_middleware(
@@ -62,7 +76,7 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
-
+Base.metadata.create_all(engine)
 # Token blacklist for storing invalidated tokens
 token_blacklist = set()
 
@@ -89,16 +103,23 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
-    posts = relationship("Post", back_populates="user", cascade="all, delete-orphan")
 
+# DELETE your old 'Post' class and add these two in its place
 class Post(Base):
     __tablename__ = "posts"
-    id = Column(Integer, primary_key = True, index = True)
-    title = Column(String, index = True)
-    content = Column(String, index = True)
-    createtime = Column(TIMESTAMP(timezone=True), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True, nullable=False)
+    content = Column(String, index=True)
+    cover_image_url = Column(String, nullable=False)
+    createtime = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    user = relationship("User", back_populates="posts")
+
+class Media(Base):
+    __tablename__ = "media"
+    id = Column(Integer, primary_key=True, index=True)
+    post_id = Column(Integer, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
+    file_url = Column(String, nullable=False)
+    media_type = Column(String, nullable=False)
 
 Base.metadata.create_all(bind=engine)
 
@@ -154,33 +175,16 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def get_user(db, username: str = None, email: str = None):
-    """Get user by username or email"""
-    if username:
-        return db.query(User).filter(User.username == username).first()
-    elif email:
-        return db.query(User).filter(User.email == email).first()
-    return None
+def get_user(db, username: str):
+    return db.query(User).filter(User.username == username).first()
 
 
-def authenticate_user(db, username: str = None, email: str = None, password: str = None):
-    """Authenticate user by username/email and password"""
-    if not (username or email) or not password:
-        return False
-        
-    # Try to find user by username or email
-    if username:
-        user = get_user(db, username=username)
-    else:
-        user = get_user(db, email=email)
-        
+def authenticate_user(db, username: str, password: str):
+    user = get_user(db, username)
     if not user:
         return False
-        
-    # Verify password
     if not verify_password(password, user.hashed_password):
         return False
-        
     return user
 
 
@@ -292,18 +296,11 @@ async def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    # Check if the username is actually an email
-    is_email = "@" in form_data.username
-    
-    if is_email:
-        user = authenticate_user(db, email=form_data.username, password=form_data.password)
-    else:
-        user = authenticate_user(db, username=form_data.username, password=form_data.password)
-    
+    user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username/email or password",
+            detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -410,76 +407,24 @@ async def logout(
         )
 
 
-# Test endpoint to create a test user
-@app.post("/create-test-user")
-async def create_test_user(db: Session = Depends(get_db)):
-    test_user = {
-        "username": "testuser",
-        "email": "test@example.com",
-        "name": "Test User",
-        "password": "testpassword123"
-    }
-    
-    # Check if user already exists
-    db_user = get_user(db, username=test_user["username"])
+# User endpoints
+@app.post("/users/", response_model=UserInDB)
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == user.username).first()
     if db_user:
-        return {"message": "Test user already exists", "username": test_user["username"]}
+        raise HTTPException(status_code=400, detail="Username already registered")
     
-    # Create new user
-    hashed_password = get_password_hash(test_user["password"])
+    hashed_password = get_password_hash(user.password)
     db_user = User(
-        username=test_user["username"],
-        email=test_user["email"],
-        name=test_user["name"],
+        name=user.name,
+        username=user.username,
+        email=user.email,
         hashed_password=hashed_password
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    
-    return {
-        "message": "Test user created successfully",
-        "username": test_user["username"],
-        "password": test_user["password"]
-    }
-
-# User endpoints
-@app.post("/users/", response_model=UserResponse)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    # Check if username already exists
-    db_user = db.query(User).filter(User.username == user.username).first()
-    if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    
-    # Check if email already exists
-    db_email = db.query(User).filter(User.email == user.email).first()
-    if db_email:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    try:
-        hashed_password = get_password_hash(user.password)
-        db_user = User(
-            name=user.name,
-            username=user.username,
-            email=user.email,
-            hashed_password=hashed_password,
-            is_active=True
-        )
-        db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
-        
-        # Return user data without password hash
-        return {
-            "id": db_user.id,
-            "username": db_user.username,
-            "email": db_user.email,
-            "name": db_user.name,
-            "is_active": db_user.is_active
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    return db_user
 
 
 @app.get("/users/", response_model=list[UserResponse])
@@ -522,10 +467,6 @@ def delete_user(user_id:int, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.id == user_id).first()
     if db_user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    with os.scandir("./uploads") as entries:
-        for entry in entries:
-            if entry.name.split('-')[0] == str(user_id):
-                os.remove(entry)
     db.delete(db_user)
     db.commit()
     return db_user
@@ -536,19 +477,41 @@ def delete_user(user_id:int, db: Session = Depends(get_db)):
 #----------POST------------------------------------------------------------------------------------------------
 
 
+# Add these two new functions
+@app.post("/upload/")
+async def upload_file(file: UploadFile = File(...)):
+    file_path = f"static/{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    return {"file_url": f"/{file_path}"}
+
+@app.get("/posts/search/", response_model=List[PostResponse])
+def search_posts(q: str, db: Session = Depends(get_db)):
+    posts = db.query(Post).filter(Post.title.contains(q) | Post.content.contains(q)).all()
+    return posts
 
 
 class PostCreate(BaseModel):
     title: str
     content: str
-
+    media_urls: List[dict]
+class MediaResponse(BaseModel):
+     id: int
+     file_url: str
+     media_type: str
+     class Config:
+        orm_mode = True
 class PostResponse(BaseModel):
     id: int
     title: str
     content: str
+    cover_image_url: str
     createtime: datetime
     user_id: int
-    image: str
+    media: List[MediaResponse] = []
+    class Config:
+        orm_mode = True
+    
 
 @app.post("/{user_name}/posts/", response_model=PostResponse)
 def create_post(user_name: str, post: PostCreate, db: Session = Depends(get_db)):
@@ -583,62 +546,23 @@ class PostUpdate(BaseModel):
     title:Optional[str] = None
     content:Optional[str] = None
 
-@app.post("/{user_name}/posts/", response_model=PostResponse)
-def create_post(user_name: str, ptitle: str = Form(...), pcontent: str = Form(...), img: UploadFile = File(...), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == user_name).first()
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    imgname = str(user.id) + '-' + img.filename
-    post = db.query(Post).filter(Post.user_id == user.id).filter(Post.image == imgname).first()
-    if post is not None:
-        raise HTTPException(status_code=400, detail="Cannot add two images with the same filename.")
-    if img.content_type.split('/')[0] != "image":
-        raise HTTPException(status_code=400, detail="Incorrect file type")
-    with open(f'./uploads/{imgname}', "wb") as f:
-        f.write(img.file.read())
-    db_post = Post(title = ptitle, content = pcontent, createtime = datetime.now(), user_id = user.id, image = imgname)
-    db.add(db_post)
-    db.commit()
-    db.refresh(db_post)
-    return db_post
-
-@app.get("/{user_name}/posts/", response_model = list[PostResponse])
-def read_posts(user_name: str, skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == user_name).first()
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    posts = db.query(Post).filter(Post.user_id == user.id).offset(skip).limit(limit).all()
-    return posts
-
-@app.get("/{user_name}/posts/{post_title}", response_model = PostResponse)
-def read_post(user_name: str, post_title: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == user_name).first()
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    post = db.query(Post).filter(Post.title == post_title).filter(Post.user_id == user.id).first()
+# Add this endpoint to your main.py, for example, after the other post-related routes.
+@app.get("/posts/{post_id}", response_model=PostResponse)
+def read_post_by_id(post_id: int, db: Session = Depends(get_db)):
+    post = db.query(Post).filter(Post.id == post_id).first()
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
     return post
-
 @app.put("/{user_name}/posts/{post_id}", response_model=PostResponse)
-def update_post(user_name: str, post_id: int, ptitle: Optional[str] = Form(None), pcontent: Optional[str] = Form(None), img: Optional[UploadFile] = File(None), db: Session = Depends(get_db)):
+def update_post(user_name: str, post_id: int, post: PostUpdate, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == user_name).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    db_post = db.query(Post).filter(Post.id == post_id).filter(Post.user_id == user.id).first()
+    db_post = db.query(Post).filter(Post.id == post_id and Post.user_id == user.id).first()
     if db_post is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    db_post.title = ptitle if ptitle is not None else db_post.title
-    db_post.content = pcontent if pcontent is not None else db_post.content
-    if (img):
-        if img.content_type.split('/')[0] != "image":
-            raise HTTPException(status_code=400, detail="Incorrect file type")
-        imgname = str(user.id) + '-' + img.filename
-        file_to_delete = f"./uploads/{db_post.image}"
-        os.remove(file_to_delete)
-        with open(f'./uploads/{imgname}', "wb") as f:
-            f.write(img.file.read())
-        db_post.image = imgname
+    db_post.title = post.title if post.title != "" else db_post.title
+    db_post.content = post.content if post.content != "" else db_post.content
     db.commit()
     db.refresh(db_post)
     return db_post
@@ -648,11 +572,9 @@ def delete_post(user_name: str, post_id:int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == user_name).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    db_post = db.query(Post).filter(Post.id == post_id).filter(Post.user_id == user.id).first()
+    db_post = db.query(Post).filter(Post.id == post_id and Post.user_id == user.id).first()
     if db_post is None:
-        raise HTTPException(status_code=404, detail="Post not found")
-    file_to_delete = f"./uploads/{db_post.image}"
-    os.remove(file_to_delete)
+        raise HTTPException(status_code=404, detail="User not found")
     db.delete(db_post)
     db.commit()
     return db_post
