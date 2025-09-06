@@ -112,7 +112,8 @@ class Post(Base):
     title = Column(String, index=True, nullable=False)
     content = Column(String, index=True)
     cover_image_url = Column(String, nullable=False)
-    createtime = Column(TIMESTAMP(timezone=True), nullable=False, server_default=text('now()'))
+    # This version lets your Python app set the time
+    createtime = Column(TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     media = relationship("Media", back_populates="post") # ADD THIS LINE
@@ -572,16 +573,30 @@ def read_post_by_id(post_id: int, db: Session = Depends(get_db)):
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
     return post
-@app.put("/{user_name}/posts/{post_id}", response_model=PostResponse)
-def update_post(user_name: str, post_id: int, post: PostUpdate, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == user_name).first()
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    db_post = db.query(Post).filter(Post.id == post_id and Post.user_id == user.id).first()
-    if db_post is None:
+# In main.py, replace the old update_post function
+
+@app.put("/posts/{post_id}", response_model=PostResponse)
+def update_post(
+    post_id: int, 
+    post: PostUpdate, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    db_post = db.query(Post).filter(Post.id == post_id).first()
+
+    if not db_post:
         raise HTTPException(status_code=404, detail="Post not found")
-    db_post.title = post.title if post.title != "" else db_post.title
-    db_post.content = post.content if post.content != "" else db_post.content
+    
+    # Check if the current user is the owner of the post
+    if db_post.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this post")
+
+    # Update fields if they are provided
+    if post.title is not None:
+        db_post.title = post.title
+    if post.content is not None:
+        db_post.content = post.content
+    
     db.commit()
     db.refresh(db_post)
     return db_post
